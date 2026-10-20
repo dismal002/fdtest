@@ -17,6 +17,12 @@ LPCSTR g_cancelFlag     = nullptr;   // lpModuleName
 HANDLE g_hConsoleOutput = (HANDLE)(intptr_t)-2;
 CHAR   g_stringBuffer[256] = {0};    // Buffer
 
+#ifdef _WIN32
+#define SEPERATOR "\\"
+#else
+#define SEPERATOR "/"
+#endif
+
 // ============================================================================
 // main
 // ============================================================================
@@ -40,6 +46,7 @@ int __cdecl main(int argc, const char** argv, const char** envp)
     ioParams.bytesXfer2  = 0;
     ioParams.result1     = 0;
     ioParams.result2     = 0;
+    ioParams.exitThread  = FALSE;
 
     // ----------------------------------------------------------------
     // Initialize state variables
@@ -50,7 +57,7 @@ int __cdecl main(int argc, const char** argv, const char** envp)
     int  doRandomize     = 0;        // v172 - randomize pass order
     int  passesOK        = 0;        // counter for successful passes
     char confirmChar     = 'Y';      // v145
-    CHAR rootPathName[4] = {0};      // Drive root e.g. "C:\\"
+    CHAR rootPathName[184] = {0};      // Drive root e.g. "C:\\" or "/mnt/usb"
     CHAR fileName[184]   = {0};      // File path buffer
     CHAR fmtBuffer[256]  = {0};      // Local format/display buffer
     DWORD writeElapsed   = 0;        // elapsed time from write phase
@@ -91,8 +98,8 @@ int __cdecl main(int argc, const char** argv, const char** envp)
     // ----------------------------------------------------------------
     if (argc == 2)
     {
-        // Single argument: should be "X:" (drive letter + colon)
-        if (strlen(argv[1]) != 2 || argv[1][1] != ':')
+        // Single argument: should be "X:" (drive letter + colon), or "/XXX"
+        if ((strlen(argv[1]) != 2 || argv[1][1] != ':') && (argv[1][0] != '/'))
             goto INTERACTIVE_MODE;
         goto COPY_DRIVE_LETTER;
     }
@@ -127,11 +134,16 @@ INTERACTIVE_MODE:
         do
         {
             printf(fmtBuffer);
+#ifdef _WIN32
             scanf("%c", &rootPathName[0]);
+#else
+            scanf("%s", rootPathName);
+#endif
             FlushStdin();
         }
         while ((rootPathName[0] < 'a' || rootPathName[0] > 'z') &&
-               (rootPathName[0] < 'A' || rootPathName[0] > 'Z'));
+               (rootPathName[0] < 'A' || rootPathName[0] > 'Z') &&
+               (rootPathName[0] != '/'));
 
         // Prompt for verification
         LoadResString(IDS_PROMPT_VERIFY, fmtBuffer, 256);
@@ -150,7 +162,7 @@ INTERACTIVE_MODE:
         do
         {
             printf(fmtBuffer);
-            scanf("%ld", &numPasses);
+            scanf("%d", &numPasses);
         }
         while (numPasses < 1);
         FlushStdin();
@@ -187,6 +199,7 @@ COPY_DRIVE_LETTER:
     }
 
 AFTER_ARGS:
+#ifdef _WIN32
     // Uppercase the drive letter
     rootPathName[0] &= ~0x20;
 
@@ -197,6 +210,7 @@ AFTER_ARGS:
         rootPathName[2] = '\\';
         rootPathName[3] = '\0';
     }
+#endif
 
     // Display drive info
     if (DisplayDriveInfo(rootPathName) == 0)
@@ -228,7 +242,7 @@ PASS_LOOP:
         printf(fmtBuffer, passCounter, numPasses);
 
         // Check if test data files already exist
-        sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, 1);
+        sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, 1);
 
         if (GetFileAttributesA(fileName) == INVALID_FILE_ATTRIBUTES)
         {
@@ -242,9 +256,6 @@ PASS_LOOP:
 
             // Check free space
             DWORD spc, bps, numFree, numTotal;
-            LoadResString(IDS_STATUS_FMT, fmtBuffer, 256);
-            printf(fmtBuffer);
-
             GetDiskFreeSpaceA(rootPathName, &spc, &bps, &numFree, &numTotal);
             double spcD = (double)(int)spc;
             if ((spc & 0x80000000) != 0) spcD += BYTES_4GB;
@@ -273,7 +284,8 @@ PASS_LOOP:
             }
 
             // Begin writing
-            LoadResString(IDS_FILES_EXIST, fmtBuffer, 256);
+            LoadResString(IDS_STATUS_HDR, fmtBuffer, 256);
+            printf(fmtBuffer);
 
             // Fill the first buffer with PRNG data
             unsigned int* activeBuf = (unsigned int*)lpBuffer;
@@ -287,10 +299,7 @@ PASS_LOOP:
             int   blockOffset = -BLOCKS_PER_FILE;
             fileNumber = 0;
 
-            LoadResString(IDS_WRITING_HDR, fmtBuffer, 256);
-            printf(fmtBuffer);
-
-            LoadResString(IDS_STATUS_FMT, fmtBuffer, 256);
+            LoadResString(IDS_WRITING_FMT, fmtBuffer, 256);
 
             while (true)
             {
@@ -323,7 +332,7 @@ PASS_LOOP:
                         hFile = nullptr;
                     }
 
-                    sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, fileNumber);
+                    sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, fileNumber);
                     hFile = CreateFileA(fileName, GENERIC_READ | GENERIC_WRITE,
                                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                                         nullptr, OPEN_ALWAYS,
@@ -470,7 +479,7 @@ PASS_LOOP:
             LoadResString(IDS_FILES_EXIST, fmtBuffer, 256);
             printf(fmtBuffer);
 
-            LoadResString(IDS_STATUS_FMT, fmtBuffer, 256);
+            LoadResString(IDS_STATUS_HDR, fmtBuffer, 256);
             printf(fmtBuffer);
         }
 
@@ -482,12 +491,12 @@ PASS_LOOP:
             int lastFile = 1;
             do
             {
-                sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, lastFile++);
+                sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, lastFile++);
             }
             while (GetFileAttributesA(fileName) != INVALID_FILE_ATTRIBUTES);
 
             lastFile -= 2;  // Back to last valid file
-            sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, lastFile);
+            sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, lastFile);
 
             // Open last file to get total block count
             HANDLE hLastFile = CreateFileA(fileName, GENERIC_READ,
@@ -518,13 +527,13 @@ PASS_LOOP:
             progressBarChars = (int)blocksPerSlot + 1;
 
             // Open first file
-            sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, 1);
+            sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, 1);
 
             // Reset PRNG
             prng_reset();
             ResetEvent(g_hDoneEvent);
 
-            LoadResString(IDS_READING_HDR, fmtBuffer, 256);
+            LoadResString(IDS_READING_FMT, fmtBuffer, 256);
 
             DWORD tickStart2 = GetTickCount();
             int   lastReportTick2 = 0;
@@ -547,7 +556,7 @@ PASS_LOOP:
                         hFile = nullptr;
                     }
 
-                    sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, fileNumber);
+                    sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, fileNumber);
 
                     if (GetFileAttributesA(fileName) == INVALID_FILE_ATTRIBUTES)
                         goto VERIFY_DONE;
@@ -632,7 +641,7 @@ PASS_LOOP:
                 // Print error message
                 printf(fmtBuffer, blockIndex);
                 SetConsoleColor(COLOR_DEFAULT);
-                LoadResString(IDS_READING_HDR, fmtBuffer, 256);
+                LoadResString(IDS_READING_FMT, fmtBuffer, 256);
 
             AFTER_VERIFY_BLOCK:
                 totalMBtoRead -= 1.0;
@@ -829,7 +838,7 @@ PASS_LOOP:
                 LoadResString(IDS_CLEANUP, fmtBuffer, 256);
                 printf(fmtBuffer);
 
-                sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, 1);
+                sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, 1);
                 if (GetFileAttributesA(fileName) == INVALID_FILE_ATTRIBUTES)
                     continue;  // No files to delete, start next pass
 
@@ -837,7 +846,7 @@ PASS_LOOP:
                 delFileNum = 2;
                 while (remove(fileName) == 0)
                 {
-                    sprintf(fileName, "%s\\FDT%05d.BIN", rootPathName, delFileNum++);
+                    sprintf(fileName, "%s%sFDT%05d.BIN", rootPathName, SEPERATOR, delFileNum++);
                     if (GetFileAttributesA(fileName) == INVALID_FILE_ATTRIBUTES)
                         goto PASS_LOOP;
                 }
@@ -903,6 +912,11 @@ CLEANUP:
 
     free(lpBuffer);
     free(block);
+
+    ioParams.exitThread  = TRUE;
+    SetEvent(g_hReadEvent);
+    SetEvent(g_hWriteEvent);
+
     CloseHandle(g_hReadEvent);
     CloseHandle(g_hWriteEvent);
     CloseHandle(g_hDoneEvent);

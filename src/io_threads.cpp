@@ -22,6 +22,8 @@ DWORD WINAPI ReaderThread(LPVOID lpParam)
     while (true)
     {
         WaitForSingleObject(g_hReadEvent, INFINITE);
+        if (params->exitThread)
+            break;
 
         HANDLE hFile = *params->pFileHandle;
         BOOL result;
@@ -72,6 +74,8 @@ DWORD WINAPI WriterThread(LPVOID lpParam)
     while (true)
     {
         WaitForSingleObject(g_hWriteEvent, INFINITE);
+        if (params->exitThread)
+            break;
 
         BOOL result;
         HANDLE hFile = *params->pFileHandle;

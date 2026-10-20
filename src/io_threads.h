@@ -14,6 +14,7 @@ struct IOThreadParams {
     DWORD   bytesXfer2;     // Parameter[4] - bytes transferred for buffer2
     BOOL    result1;        // v174 - success/failure for buffer1
     BOOL    result2;        // v175 - success/failure for buffer2
+    BOOL    exitThread;     // true for exit thread/app
 };
 
 // Reader thread entry point.
